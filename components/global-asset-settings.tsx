@@ -52,8 +52,18 @@ import { cn } from "@/lib/utils"
 import { buildDeepHierarchyClassificationCsv } from "@/lib/export-deep-hierarchy-csv"
 import { fieldsetKeyFromDisplayName } from "@/lib/fieldset-name-key"
 import { COMPANY_FIELDSET_CLIENTS } from "@/lib/build-multi-hierarchy-global-catalog"
+import { assetTypeWithSingleFieldset } from "@/lib/asset-type-single-fieldset"
 import { AssignFieldsetToTypesDialog } from "@/components/assign-fieldset-to-types-dialog"
 import { AssignTemplatesDialog } from "@/components/assign-templates-dialog"
+import {
+  AssignTemplatesFieldsetsConfirmDialog,
+  type FieldsetMergeConfirmPayload,
+} from "@/components/assign-templates-fieldsets-confirm-dialog"
+import {
+  assetTypeQualifiesForFieldsetMergeConfirm,
+  everyMergeScopeTypeHasAtMostOneCustomFieldsetKey,
+  qualifyingMergeNeedsAnotherRoundAfterImport,
+} from "@/lib/fieldset-client-labels"
 import type { AssetTemplate } from "@/components/asset-templates-table"
 import { COMPANY_PROJECTS } from "@/lib/company-projects"
 import { countProjectsUsingFieldsetKey } from "@/lib/project-fieldset-keys"
@@ -220,6 +230,12 @@ type PendingFieldsetAutoSyncSave = {
   fieldsetLabels: string[]
 }
 
+type PendingMultiFieldsetTemplateSave = {
+  target: TemplateAssignTarget
+  templateIds: string[]
+  meta?: { includeFieldsets?: boolean }
+}
+
 export interface GlobalAssetSettingsProps {
   templates: AssetTemplate[]
   globalCatalog: TemplateAssetConfig
@@ -268,6 +284,12 @@ export function GlobalAssetSettings({
   const [pendingFieldsetAutoSyncSave, setPendingFieldsetAutoSyncSave] =
     useState<PendingFieldsetAutoSyncSave | null>(null)
   const pendingFieldsetAutoSyncRef = useRef<PendingFieldsetAutoSyncSave | null>(null)
+
+  const [pendingMultiFieldsetTemplateSave, setPendingMultiFieldsetTemplateSave] =
+    useState<PendingMultiFieldsetTemplateSave | null>(null)
+
+  /** After fieldset merge Import: re-open when catalog still needs another merge round for those templates. */
+  const multiFieldsetPostImportRecheckRef = useRef<PendingMultiFieldsetTemplateSave | null>(null)
 
   /** Which client&apos;s fieldset definition is edited in the fieldset sheet (no top-level client tabs). */
   const [fieldsetSheetClient, setFieldsetSheetClient] = useState<string>(COMPANY_FIELDSET_CLIENTS[0])
@@ -349,6 +371,80 @@ export function GlobalAssetSettings({
     }
     return [...acc]
   }, [templateAssignTarget, globalCatalog])
+
+  const fieldsetMergeConfirmOpts = useMemo(
+    () => ({
+      fieldsetsByClient,
+      fieldsetClientOrder: COMPANY_FIELDSET_CLIENTS,
+      fallbackFieldsets: primaryFieldsets,
+    }),
+    [fieldsetsByClient, primaryFieldsets]
+  )
+
+  /** Types from the Assign templates step only, among those that need merge scope (multi key / +N). */
+  const multiFieldsetConfirmSelectedTypes = useMemo((): AssetType[] => {
+    if (!pendingMultiFieldsetTemplateSave) return []
+    const tgt = pendingMultiFieldsetTemplateSave.target
+    if (tgt.scope !== "assetType") return []
+    const selectedIds = new Set(tgt.typeIds)
+    const all = globalCatalog.assetTypes
+    return all.filter(
+      (t) =>
+        selectedIds.has(t.id) &&
+        assetTypeQualifiesForFieldsetMergeConfirm(t, all, fieldsetMergeConfirmOpts, selectedIds)
+    )
+  }, [pendingMultiFieldsetTemplateSave, globalCatalog.assetTypes, fieldsetMergeConfirmOpts])
+
+  /** After Import, reopen merge dialog when updated catalog still needs another merge round for pending templates. */
+  useEffect(() => {
+    const payload = multiFieldsetPostImportRecheckRef.current
+    if (!payload) return
+    multiFieldsetPostImportRecheckRef.current = null
+
+    if (payload.meta?.includeFieldsets !== true) return
+    const assignTgt = payload.target
+    if (assignTgt.scope !== "assetType") return
+
+    const assignScopeIds = new Set(assignTgt.typeIds)
+    const opts = {
+      fieldsetsByClient: globalCatalog.fieldsetsByClient,
+      fieldsetClientOrder: COMPANY_FIELDSET_CLIENTS,
+      fallbackFieldsets: globalCatalog.fieldsets,
+      mergeScopeSelectedTypeIds: assignScopeIds,
+    }
+    const typesForThisAssign = globalCatalog.assetTypes.filter((t) =>
+      assignTgt.typeIds.includes(t.id)
+    )
+
+    if (
+      everyMergeScopeTypeHasAtMostOneCustomFieldsetKey(
+        typesForThisAssign,
+        globalCatalog.assetTypes,
+        assignScopeIds
+      )
+    ) {
+      return
+    }
+
+    if (
+      !qualifyingMergeNeedsAnotherRoundAfterImport(
+        payload.templateIds,
+        typesForThisAssign,
+        globalCatalog.fieldsetTemplateAssignments,
+        globalCatalog.fieldsets,
+        globalCatalog.fieldsetsByClient,
+        opts
+      )
+    ) {
+      return
+    }
+
+    setPendingMultiFieldsetTemplateSave({
+      target: payload.target,
+      templateIds: payload.templateIds,
+      meta: payload.meta,
+    })
+  }, [globalCatalog])
 
   const takenFieldsetKeys = useMemo(() => new Set(Object.keys(primaryFieldsets)), [primaryFieldsets])
 
@@ -530,15 +626,18 @@ export function GlobalAssetSettings({
       onUpdateGlobalCatalog((prev) => {
         const map = fsMap(prev)
         const safeFs = fsKey in map ? fsKey : "Procore Default"
-        const newAsset: AssetType = {
-          id: `type-${Date.now()}`,
-          name: data.name,
-          code: data.code,
-          description: data.description,
-          fieldset: safeFs,
-          statusGroup: "Procore Default",
-          isAssembly: data.isAssembly ?? false,
-        }
+        const newAsset = assetTypeWithSingleFieldset(
+          {
+            id: `type-${Date.now()}`,
+            name: data.name,
+            code: data.code,
+            description: data.description,
+            fieldset: "Procore Default",
+            statusGroup: "Procore Default",
+            isAssembly: data.isAssembly ?? false,
+          },
+          safeFs
+        )
         const newTypes = [...prev.assetTypes, newAsset]
         const fsSynced = syncFieldsetTemplateAssignmentsWithAssetTypes(
           prev.fieldsetTemplateAssignments ?? {},
@@ -564,14 +663,16 @@ export function GlobalAssetSettings({
       const safeFs = fsKey in map ? fsKey : "Procore Default"
       const newTypes = prev.assetTypes.map((x) =>
         x.id === typeId
-          ? {
-              ...x,
-              name: data.name,
-              code: data.code,
-              description: data.description,
-              isAssembly: data.isAssembly ?? false,
-              fieldset: safeFs,
-            }
+          ? assetTypeWithSingleFieldset(
+              {
+                ...x,
+                name: data.name,
+                code: data.code,
+                description: data.description,
+                isAssembly: data.isAssembly ?? false,
+              },
+              safeFs
+            )
           : x
       )
       const fsSynced = syncFieldsetTemplateAssignmentsWithAssetTypes(
@@ -605,16 +706,19 @@ export function GlobalAssetSettings({
     const parent = assetTypes.find((x) => x.id === parentId)
     if (!parent) return
     const newId = `${parentId}-ns-${Date.now()}`
-    const newSubtype: AssetType = {
-      id: newId,
-      name: "New Subtype",
-      code: `${parent.code}.`,
-      description: "",
-      fieldset: parent.fieldset,
-      statusGroup: parent.statusGroup,
-      parentId,
-      isAssembly: false,
-    }
+    const newSubtype = assetTypeWithSingleFieldset(
+      {
+        id: newId,
+        name: "New Subtype",
+        code: `${parent.code}.`,
+        description: "",
+        fieldset: "Procore Default",
+        statusGroup: parent.statusGroup,
+        parentId,
+        isAssembly: false,
+      },
+      parent.fieldset
+    )
     onUpdateGlobalCatalog((prev) => {
       const newTypes = [
         ...prev.assetTypes.map((a) => (a.id === parentId ? { ...a, hasSubtypes: true } : a)),
@@ -714,7 +818,14 @@ export function GlobalAssetSettings({
       target: TemplateAssignTarget,
       templateIds: string[],
       autoSyncTemplatesOntoFieldsetTypes: Set<string> | null,
-      mergeTemplatesOntoFieldsetRows = false
+      mergeTemplatesOntoFieldsetRows = false,
+      /**
+       * When defined (including `[]`), only these logical keys get template merge onto Fieldsets rows.
+       * When `undefined`, merge uses each selected type’s current active fieldset key.
+       */
+      mergeFieldsetKeysOverride?: readonly string[] | undefined,
+      /** When set, updates `AssetType.fieldset` for these ids (merge dialog: unchecked row → Procore Default). */
+      mergeFieldsetByTypeId?: ReadonlyMap<string, string> | null
     ) => {
       onUpdateGlobalCatalog((prev) => {
         if (target.scope === "fieldset") {
@@ -788,14 +899,28 @@ export function GlobalAssetSettings({
         }
         const atFinal = Object.keys(next).length > 0 ? next : undefined
 
-        const nextAssetTypes = prev.assetTypes
+        let nextAssetTypes = prev.assetTypes
+        if (mergeFieldsetByTypeId && mergeFieldsetByTypeId.size > 0) {
+          nextAssetTypes = prev.assetTypes.map((t) => {
+            const fk = mergeFieldsetByTypeId.get(t.id)
+            if (fk !== undefined) return assetTypeWithSingleFieldset(t, fk)
+            return t
+          })
+        }
 
         let fsBase = prev.fieldsetTemplateAssignments ?? {}
         if (mergeTemplatesOntoFieldsetRows && templateIds.length > 0) {
-          const logicalKeys = uniqueFieldsetKeysForAssetTypeIds(
-            target.typeIds,
-            nextAssetTypes
-          )
+          let logicalKeys: string[]
+          if (mergeFieldsetKeysOverride !== undefined) {
+            logicalKeys = [...new Set(mergeFieldsetKeysOverride)].filter((k) =>
+              Object.prototype.hasOwnProperty.call(prev.fieldsets, k)
+            )
+          } else {
+            logicalKeys = uniqueFieldsetKeysForAssetTypeIds(
+              target.typeIds,
+              nextAssetTypes
+            )
+          }
           if (logicalKeys.length > 0) {
             fsBase = mergeTemplateIdsIntoFieldsetAssignmentStorage(
               prev.fieldsetTemplateAssignments,
@@ -836,6 +961,22 @@ export function GlobalAssetSettings({
     },
     [onUpdateGlobalCatalog]
   )
+
+  const finalizeMultiFieldsetAssignConfirm = (payload: FieldsetMergeConfirmPayload) => {
+    const p = pendingMultiFieldsetTemplateSave
+    if (!p) return
+    setPendingMultiFieldsetTemplateSave(null)
+    const merge = p.target.scope === "assetType" && p.meta?.includeFieldsets === true
+    multiFieldsetPostImportRecheckRef.current = merge ? { ...p } : null
+    commitTemplateAssignmentsSave(
+      p.target,
+      p.templateIds,
+      null,
+      merge,
+      merge ? payload.keysForTemplateMerge : undefined,
+      merge ? new Map(Object.entries(payload.fieldsetByTypeId)) : null
+    )
+  }
 
   const finalizeFieldsetAutoSyncAlert = (withAutoSync: boolean) => {
     const p = pendingFieldsetAutoSyncRef.current
@@ -897,6 +1038,27 @@ export function GlobalAssetSettings({
         setFieldsetAutoSyncAlertOpen(true)
         return false
       }
+    }
+
+    if (
+      templateAssignTarget.scope === "assetType" &&
+      meta?.includeFieldsets === true &&
+      globalCatalog.assetTypes.some((t) => {
+        if (!templateAssignTarget.typeIds.includes(t.id)) return false
+        const scope = new Set(templateAssignTarget.typeIds)
+        return assetTypeQualifiesForFieldsetMergeConfirm(t, globalCatalog.assetTypes, {
+          fieldsetsByClient: globalCatalog.fieldsetsByClient,
+          fieldsetClientOrder: COMPANY_FIELDSET_CLIENTS,
+          fallbackFieldsets: globalCatalog.fieldsets,
+        }, scope)
+      })
+    ) {
+      setPendingMultiFieldsetTemplateSave({
+        target: templateAssignTarget,
+        templateIds,
+        meta,
+      })
+      return false
     }
 
     commitTemplateAssignmentsSave(
@@ -1037,11 +1199,10 @@ export function GlobalAssetSettings({
       const newTypes = prev.assetTypes.map((a) => {
         const should = assignSelectedIds.has(a.id)
         if (should) {
-          // One fieldset per type: assigning replaces any previous fieldset key.
-          return a.fieldset === safe ? a : { ...a, fieldset: safe }
+          return assetTypeWithSingleFieldset(a, safe)
         }
         if (a.fieldset === key) {
-          return { ...a, fieldset: "Procore Default" }
+          return assetTypeWithSingleFieldset(a, "Procore Default")
         }
         return a
       })
@@ -1230,11 +1391,15 @@ export function GlobalAssetSettings({
               onDelete={isTemplateView ? undefined : onDeleteGlobal}
               onAddSubtype={isTemplateView ? undefined : handleAddSubtype}
               expandAllParentRows
-              fieldsetsByClient={fieldsetsByClient}
-              fieldsetClientOrder={COMPANY_FIELDSET_CLIENTS}
-              fieldsetFallbackFieldsets={primaryFieldsets}
+              fieldsetsByClient={isTemplateView ? undefined : fieldsetsByClient}
+              fieldsetClientOrder={isTemplateView ? undefined : COMPANY_FIELDSET_CLIENTS}
+              fieldsetFallbackFieldsets={isTemplateView ? undefined : primaryFieldsets}
               resolveFieldsetDisplay={
-                fieldsetsByClient ? undefined : (k) => primaryFieldsets[k]?.name
+                isTemplateView
+                  ? (k) => primaryFieldsets[k]?.name?.trim() || k
+                  : fieldsetsByClient
+                    ? undefined
+                    : (k) => primaryFieldsets[k]?.name
               }
               templateRowSelection={
                 isTemplateView
@@ -1748,6 +1913,19 @@ export function GlobalAssetSettings({
         </AlertDialogContent>
       </AlertDialog>
 
+      <AssignTemplatesFieldsetsConfirmDialog
+        open={pendingMultiFieldsetTemplateSave !== null}
+        onOpenChange={(o) => {
+          if (!o) setPendingMultiFieldsetTemplateSave(null)
+        }}
+        selectedTypes={multiFieldsetConfirmSelectedTypes}
+        allAssetTypes={globalCatalog.assetTypes}
+        fieldsetsByClient={fieldsetsByClient}
+        fieldsetClientOrder={COMPANY_FIELDSET_CLIENTS}
+        fieldsets={primaryFieldsets}
+        onConfirm={finalizeMultiFieldsetAssignConfirm}
+      />
+
       <AssignTemplatesDialog
         open={templateAssignOpen}
         onOpenChange={(o) => {
@@ -1757,6 +1935,7 @@ export function GlobalAssetSettings({
             pendingFieldsetAutoSyncRef.current = null
             setPendingFieldsetAutoSyncSave(null)
             setFieldsetAutoSyncAlertOpen(false)
+            setPendingMultiFieldsetTemplateSave(null)
           }
         }}
         templates={templates}
