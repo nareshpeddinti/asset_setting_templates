@@ -1201,9 +1201,7 @@ export function GlobalAssetSettings({
         if (should) {
           return assetTypeWithSingleFieldset(a, safe)
         }
-        if (a.fieldset === key) {
-          return assetTypeWithSingleFieldset(a, "Procore Default")
-        }
+        // Don't change non-selected asset types - only update the selected ones
         return a
       })
       const fsSynced = syncFieldsetTemplateAssignmentsWithAssetTypes(
