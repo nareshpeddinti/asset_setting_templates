@@ -41,8 +41,8 @@ export interface AssetType {
   /** Active fieldset object key in the catalog. */
   fieldset: string
   /**
-   * Optional list of alternate fieldset keys this type may reference (e.g. catalog presets).
-   * Should include {@link fieldset} or it may be merged in at runtime.
+   * Legacy optional alternates; the app enforces one active {@link fieldset} per type and clears
+   * this when assigning fieldsets (company catalog, merge import, etc.).
    */
   fieldsetCandidates?: string[]
   statusGroup: string
