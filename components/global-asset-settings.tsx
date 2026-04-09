@@ -900,9 +900,7 @@ export function GlobalAssetSettings({
         const atFinal = Object.keys(next).length > 0 ? next : undefined
 
         let nextAssetTypes = prev.assetTypes
-        // Only update asset type fieldsets when in template view - never modify global catalog asset types
-        // based on merge dialog selections (unchecked rows -> Procore Default should only apply to templates)
-        if (isTemplateView && mergeFieldsetByTypeId && mergeFieldsetByTypeId.size > 0) {
+        if (mergeFieldsetByTypeId && mergeFieldsetByTypeId.size > 0) {
           nextAssetTypes = prev.assetTypes.map((t) => {
             const fk = mergeFieldsetByTypeId.get(t.id)
             if (fk !== undefined) return assetTypeWithSingleFieldset(t, fk)
@@ -1203,7 +1201,9 @@ export function GlobalAssetSettings({
         if (should) {
           return assetTypeWithSingleFieldset(a, safe)
         }
-        // Don't change non-selected asset types - only update the selected ones
+        if (a.fieldset === key) {
+          return assetTypeWithSingleFieldset(a, "Procore Default")
+        }
         return a
       })
       const fsSynced = syncFieldsetTemplateAssignmentsWithAssetTypes(
