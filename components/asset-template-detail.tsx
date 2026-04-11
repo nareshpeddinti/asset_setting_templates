@@ -35,7 +35,6 @@ import {
   mergeFieldsetsMapsForFlatDisplay,
   syncFlatFieldsetsFromPrimaryClient,
 } from "@/lib/build-multi-hierarchy-global-catalog"
-import { assetTypeWithSingleFieldset } from "@/lib/asset-type-single-fieldset"
 
 // Default fieldsets that are always available
 const DEFAULT_FIELDSETS: Record<string, FieldsetData> = {
@@ -64,6 +63,7 @@ const TEMPLATE_DATACENTER_ASSET_TYPES: AssetType[] = [
     code: "23-GEN-CHL",
     description: "Centralized cooling source for the facility",
     fieldset: "23-GEN_Fieldset",
+    fieldsetCandidates: ["23-GEN_Fieldset", "23-AIR_Fieldset", "23-PMP_Fieldset"],
     statusGroup: "Procore Default",
     parentId: "dc-23-gen",
   },
@@ -2337,7 +2337,7 @@ export function AssetTemplateDetail({
         return prev.map((asset) => {
           const matchingFieldset = findMatchingLeafFieldset(asset.code)
           if (matchingFieldset) {
-            return assetTypeWithSingleFieldset(asset, matchingFieldset)
+            return { ...asset, fieldset: matchingFieldset }
           }
           return asset
         })

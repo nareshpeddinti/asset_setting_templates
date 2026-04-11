@@ -15,7 +15,6 @@ import {
   RESIDENTIAL_FIELDSET_CLIENTS,
   syncFlatFieldsetsFromPrimaryClient,
 } from "@/lib/build-multi-hierarchy-global-catalog"
-import { assetTypeWithSingleFieldset } from "@/lib/asset-type-single-fieldset"
 
 type VerticalSpec = {
   templateId: "template-residential" | "template-healthcare" | "template-airport"
@@ -164,7 +163,7 @@ function forceNonLeafFieldsetToProcoreDefault(assetTypes: AssetType[]): AssetTyp
     if (t.parentId) parentIdsWithChildren.add(t.parentId)
   }
   return assetTypes.map((t) =>
-    parentIdsWithChildren.has(t.id) ? assetTypeWithSingleFieldset(t, "Procore Default") : t
+    parentIdsWithChildren.has(t.id) ? { ...t, fieldset: "Procore Default" } : t
   )
 }
 
@@ -220,7 +219,7 @@ function assignLeafClientSpecificFieldsets(
 
   const nextTypes = assetTypes.map((t) => {
     if (parentIdsWithChildren.has(t.id)) {
-      return assetTypeWithSingleFieldset(t, t.fieldset)
+      return { ...t }
     }
 
     const newKey = leafFieldsetKeyForType(t.id)
@@ -239,7 +238,7 @@ function assignLeafClientSpecificFieldsets(
       nextByClient[c][newKey] = clone
     }
 
-    return assetTypeWithSingleFieldset(t, newKey)
+    return { ...t, fieldset: newKey }
   })
 
   return { assetTypes: nextTypes, fieldsetsByClient: nextByClient }

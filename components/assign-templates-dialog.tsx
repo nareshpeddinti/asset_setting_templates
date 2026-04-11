@@ -47,14 +47,14 @@ export function AssignTemplatesDialog({
 }: AssignTemplatesDialogProps) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [newTemplateName, setNewTemplateName] = useState("")
-  const [includeFieldsets, setIncludeFieldsets] = useState(true)
+  const [includeFieldsets, setIncludeFieldsets] = useState(false)
 
   useEffect(() => {
     if (!open) return
     setSelected(new Set(initialSelectedTemplateIds))
     setNewTemplateName("")
-    setIncludeFieldsets(showIncludeFieldsetsOption ? true : false)
-  }, [open, initialSelectedTemplateIds, showIncludeFieldsetsOption])
+    setIncludeFieldsets(false)
+  }, [open, initialSelectedTemplateIds])
 
   const toggle = (id: string) => {
     setSelected((prev) => {

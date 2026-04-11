@@ -269,32 +269,38 @@ export function AssetTypesTable({
                     fieldsetFallbackFieldsets
                   )
                   return (
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-sm text-foreground">{primary}</span>
-                      {extraCount > 0 ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Badge
-                              variant="secondary"
-                              className="h-5 px-1.5 text-[10px] font-normal tabular-nums"
-                            >
-                              +{extraCount}
-                            </Badge>
-                          </TooltipTrigger>
-                          <TooltipContent className="max-w-xs whitespace-pre-line text-left">
-                            {tooltipLines.join("\n")}
-                          </TooltipContent>
-                        </Tooltip>
-                      ) : null}
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-sm text-foreground">{primary}</span>
+                        {extraCount > 0 ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Badge
+                                variant="secondary"
+                                className="h-5 px-1.5 text-[10px] font-normal tabular-nums"
+                              >
+                                +{extraCount}
+                              </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs whitespace-pre-line text-left">
+                              {tooltipLines.join("\n")}
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : null}
+                      </div>
+                      <span className="font-mono text-xs text-muted-foreground">{asset.fieldset}</span>
                     </div>
                   )
                 })()
               ) : resolveFieldsetDisplay ? (
-                <span className="text-sm text-foreground">
-                  {resolveFieldsetDisplay(asset.fieldset) ?? asset.fieldset}
-                </span>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm text-foreground">
+                    {resolveFieldsetDisplay(asset.fieldset) ?? asset.fieldset}
+                  </span>
+                  <span className="font-mono text-xs text-muted-foreground">{asset.fieldset}</span>
+                </div>
               ) : (
-                <span className="text-sm text-foreground">{asset.fieldset}</span>
+                asset.fieldset
               )}
             </TableCell>
           ) : null}
